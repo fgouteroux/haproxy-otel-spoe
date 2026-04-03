@@ -1,6 +1,6 @@
 # Local test environment
 
-A self-contained Docker Compose stack for end-to-end testing of `haproxy-otel-spoe`.
+A Docker Compose stack for end-to-end testing of `haproxy-otel-spoe`.
 
 ## Services
 
@@ -9,31 +9,36 @@ A self-contained Docker Compose stack for end-to-end testing of `haproxy-otel-sp
 | `agent` | built from root `Containerfile` | internal only |
 | `haproxy` | built from `test/Containerfile` | `8080` → frontend |
 | `backend` | `traefik/whoami` | internal only |
-| `tempo` | `grafana/tempo:2.10.0` | `3200` → HTTP query API |
 
 Traffic flow:
 
 ```
 curl → HAProxy :8080 → whoami backend
-                 └── SPOE → agent → Tempo :4317 (gRPC OTLP)
-                                         ↑
-                          curl ──── Tempo :3200 (HTTP query API)
+                 └── SPOE → agent → OTLP_ENDPOINT (gRPC OTLP)
 ```
 
 ## Requirements
 
 - Docker + Docker Compose v2 (`docker compose`), **or** Podman + `podman-compose`
 
+## Configuration
+
+Edit `docker-compose.yml` to set the OTLP endpoint for the agent:
+
+```yaml
+agent:
+  environment:
+    OTLP_ENDPOINT: tempo.internal:4317   # your Tempo / OTLP collector
+    OTLP_TLS: disabled                   # or: enabled, skip-verify
+```
+
+To run a local Tempo instead, uncomment the `tempo` service block in `docker-compose.yml`.
+
 ## Start the stack
 
 ```bash
 cd test/
 docker compose up --build -d
-```
-
-Wait a few seconds for Tempo to finish initialising, then verify all services are up:
-
-```bash
 docker compose ps
 ```
 
@@ -50,13 +55,13 @@ curl -i -X POST http://localhost:8080/api -d '{"hello":"world"}'
 curl -i -H 'traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' \
      http://localhost:8080/
 
-# Send several requests to generate enough data for search
+# Send several requests to generate data
 for i in $(seq 1 10); do curl -s http://localhost:8080/ > /dev/null; done
 ```
 
-## Query traces with curl
+## Query traces with curl (local Tempo)
 
-All Tempo queries go to `http://localhost:3200`.
+If you are running the local Tempo service, all queries go to `http://localhost:3200`.
 
 ### Search recent traces
 
@@ -79,13 +84,13 @@ curl -s "http://localhost:3200/api/search?start=${START}&end=${END}" | jq .
 curl -s "http://localhost:3200/api/search?tags=http.method%3DGET" | jq .
 
 # By service name
-curl -s "http://localhost:3200/api/search?tags=service.name%3Dharproxy" | jq .
+curl -s "http://localhost:3200/api/search?tags=service.name%3Dhaproxy" | jq .
 
 # By custom attribute set in haproxy.cfg (environment=test)
 curl -s "http://localhost:3200/api/search?tags=environment%3Dtest" | jq .
 
 # Multiple tags (space-separated, URL-encoded as %20)
-curl -s "http://localhost:3200/api/search?tags=service.name%3Dharproxy%20environment%3Dtest" | jq .
+curl -s "http://localhost:3200/api/search?tags=service.name%3Dhaproxy%20environment%3Dtest" | jq .
 ```
 
 ### TraceQL queries
@@ -105,8 +110,6 @@ curl -s --get "http://localhost:3200/api/search" \
 ```
 
 ### Fetch a specific trace by ID
-
-Copy a `traceID` from a search result, then:
 
 ```bash
 TRACE_ID=4bf92f3577b34da6a3ce929d0e0e4736

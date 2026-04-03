@@ -45,7 +45,7 @@ For each HTTP transaction, HAProxy fires three SPOE messages, producing two nest
 
 2. **`on-backend-http-request`** — sent when HAProxy selects a backend server. The agent opens a child client-kind span to measure backend latency independently. `haproxy.backend.name` and `haproxy.server.name` are recorded when the span is closed (HAProxy only makes these available at response time).
 
-3. **`on-http-response`** — sent after the upstream responds. The agent closes the backend child span, then closes the frontend span, recording the HTTP status code and any custom attributes on both. Both spans are marked as error if status >= 500.
+3. **`on-http-response`** — sent after the upstream responds. The agent closes the backend child span (recording status code, `haproxy.backend.name`, and `haproxy.server.name`), then closes the frontend span (recording status code and any custom attributes). Both spans are marked as error if status >= 500.
 
 Spans are buffered in memory and exported asynchronously. If the OTLP endpoint is temporarily unavailable, the exporter retries with exponential backoff and buffers up to 10,000 spans before dropping.
 
@@ -121,7 +121,7 @@ Two files are involved: the main `haproxy.cfg` and the SPOE filter config `spoe-
 
 ### spoe-otel.cfg
 
-This file is fixed — it should not normally be changed. It defines the SPOE agent binding, the two messages sent to the agent, and the variables the agent can set in response.
+This file is fixed — it should not normally be changed. It defines the SPOE agent binding, the three messages sent to the agent, and the variables the agent can set in response.
 
 ```ini
 [otel-agent]
@@ -237,9 +237,13 @@ frontend api_front
     default_backend api_back
 
 backend http_back
+    # Required: at least one http-request rule is needed to trigger the
+    # on-backend-http-request SPOE event (HAProxy skips that analyzer otherwise).
+    http-request set-header X-Request-ID %[unique-id]
     server app1 127.0.0.1:8080 check
 
 backend api_back
+    http-request set-header X-Request-ID %[unique-id]
     server api1 127.0.0.1:9090 check
 
 backend spoe-otel-backend
@@ -345,6 +349,8 @@ cosign verify-blob \
 ---
 
 ## Deployment notes
+
+**Backend `http-request` rule required for backend spans.** HAProxy only fires `on-backend-http-request` when a backend has at least one `http-request` rule. Without one, the backend HTTP analyzer is skipped and no child span is created. Adding `http-request set-header X-Request-ID %[unique-id]` to each backend is the recommended way to satisfy this requirement — it also propagates the correlation ID to the upstream service.
 
 **Co-location vs. separate host.** The agent is stateful per-node: in-flight spans are stored in the process's memory, keyed by HAProxy's unique request ID. If you run multiple HAProxy nodes, each node must have its own agent instance. The agent does not share state across nodes.
 
