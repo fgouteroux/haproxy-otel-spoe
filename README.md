@@ -104,14 +104,19 @@ All configuration is via environment variables. There are no config files for th
 | `SERVICE_NAME` | `haproxy` | Value of the `service.name` resource attribute attached to every span. |
 | `SPOE_ADDR` | `0.0.0.0:12345` | Address the agent listens on for incoming SPOE connections from HAProxy. |
 | `OTLP_TLS` | `disabled` | TLS mode for the gRPC connection. Accepted values: `disabled`, `enabled`, `skip-verify`. |
+| `OTLP_TLS_CA` | _(empty)_ | Path to a PEM-encoded CA certificate. Use when the collector uses a private CA not in the system trust store. |
+| `OTLP_TLS_CERT` | _(empty)_ | Path to the client certificate (PEM) for mTLS. Must be set together with `OTLP_TLS_KEY`. |
+| `OTLP_TLS_KEY` | _(empty)_ | Path to the client private key (PEM) for mTLS. Must be set together with `OTLP_TLS_CERT`. |
 
 ### TLS modes
 
 | Value | Behaviour |
 |---|---|
 | `disabled` | Plain TCP, no encryption. Suitable for co-located agent and collector. |
-| `enabled` | TLS with full certificate verification against the system trust store. |
+| `enabled` | TLS with full certificate verification. Uses the system trust store by default; set `OTLP_TLS_CA` to override. |
 | `skip-verify` | TLS encryption without certificate verification. Use only in controlled environments. |
+
+`OTLP_TLS_CERT` and `OTLP_TLS_KEY` enable mTLS for both `enabled` and `skip-verify` modes. All three cert variables are ignored when `OTLP_TLS=disabled`.
 
 ---
 

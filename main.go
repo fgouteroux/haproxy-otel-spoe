@@ -19,18 +19,22 @@ func main() {
 	otlpEndpoint := getEnv("OTLP_ENDPOINT", "localhost:4317")
 	serviceName := getEnv("SERVICE_NAME", "haproxy")
 	spoeAddr := getEnv("SPOE_ADDR", "0.0.0.0:12345")
-	tlsMode := internal.TLSDisabled
+	tlsCfg := internal.TLSConfig{
+		CertFile: getEnv("OTLP_TLS_CERT", ""),
+		KeyFile:  getEnv("OTLP_TLS_KEY", ""),
+		CAFile:   getEnv("OTLP_TLS_CA", ""),
+	}
 	switch getEnv("OTLP_TLS", internal.TLSModeDisabled) {
 	case internal.TLSModeEnabled:
-		tlsMode = internal.TLSEnabled
+		tlsCfg.Mode = internal.TLSEnabled
 	case internal.TLSModeInsecureSkipVerify:
-		tlsMode = internal.TLSInsecureSkipVerify
+		tlsCfg.Mode = internal.TLSInsecureSkipVerify
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	shutdown, err := internal.SetupOTel(ctx, serviceName, otlpEndpoint, tlsMode)
+	shutdown, err := internal.SetupOTel(ctx, serviceName, otlpEndpoint, tlsCfg)
 	if err != nil {
 		log.Printf("failed to setup OTel: %v", err)
 		cancel()
