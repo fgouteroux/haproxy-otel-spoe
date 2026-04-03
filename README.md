@@ -34,11 +34,18 @@ HAProxy 2.8  ──────────────────────�
   upstream service                        Tempo / OTLP backend
 ```
 
-For each HTTP transaction, HAProxy fires two SPOE messages:
+For each HTTP transaction, HAProxy fires three SPOE messages, producing two nested spans:
 
-1. **`on-http-request`** — sent when the request arrives at the frontend. The agent opens a new span (or continues an existing trace from an inbound `traceparent` header), stores it in memory keyed by HAProxy's unique request ID, and returns a `traceparent` value via a transaction variable.
+```
+[frontend span — full roundtrip from client request to response  ]
+    └── [backend span — time from backend selection to response  ]
+```
 
-2. **`on-http-response`** — sent after the upstream responds. The agent retrieves the open span, records the HTTP status code and any custom attributes, marks the span as error if status >= 500, closes the span, and flushes it to the OTLP exporter.
+1. **`on-http-request`** — sent when the request arrives at the frontend. The agent opens a new server-kind span (or continues an existing trace from an inbound `traceparent` header), stores it in memory keyed by HAProxy's unique request ID, and returns a `traceparent` value via a transaction variable.
+
+2. **`on-backend-http-request`** — sent when HAProxy selects a backend server. The agent opens a child client-kind span recording `haproxy.backend.name` and `haproxy.server.name`, allowing backend latency to be measured independently.
+
+3. **`on-http-response`** — sent after the upstream responds. The agent closes the backend child span, then closes the frontend span, recording the HTTP status code and any custom attributes on both. Both spans are marked as error if status >= 500.
 
 Spans are buffered in memory and exported asynchronously. If the OTLP endpoint is temporarily unavailable, the exporter retries with exponential backoff and buffers up to 10,000 spans before dropping.
 
@@ -120,7 +127,7 @@ This file is fixed — it should not normally be changed. It defines the SPOE ag
 [otel-agent]
 
 spoe-agent otel-agent
-    messages    on-http-request on-http-response
+    messages    on-http-request on-backend-http-request on-http-response
     option      var-prefix      otel
     option      set-on-error    status
     timeout     hello           100ms
@@ -131,6 +138,10 @@ spoe-agent otel-agent
 spoe-message on-http-request
     args unique-id=unique-id src=src method=method path=path host=req.hdr(Host) fe_name=fe_name fe_port=dst_port traceparent=req.hdr(traceparent)
     event on-frontend-http-request
+
+spoe-message on-backend-http-request
+    args unique-id=unique-id be_name=be_name srv_name=srv_name method=method path=path
+    event on-backend-http-request
 
 spoe-message on-http-response
     args unique-id=unique-id status=status custom_attrs=var(txn.otel_attrs)

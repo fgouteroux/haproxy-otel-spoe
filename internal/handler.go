@@ -34,8 +34,9 @@ func NewHandler(store *Store) *Handler {
 	}
 }
 
-// Handle processes an incoming SPOE message — either on-http-request (opens a span)
-// or on-http-response (closes it with status and custom attributes).
+// Handle processes an incoming SPOE message — either on-http-request (opens a span),
+// on-backend-http-request (opens a child span for the backend leg),
+// or on-http-response (closes both spans with status and custom attributes).
 func (h *Handler) Handle(req *request.Request) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -82,6 +83,37 @@ func (h *Handler) Handle(req *request.Request) {
 		return
 	}
 
+	if msg, err := req.Messages.GetByName("on-backend-http-request"); err == nil {
+		get := msg.KV.Get
+		uniqueID := kvString(get, "unique-id")
+		beName := kvString(get, "be_name")
+		srvName := kvString(get, "srv_name")
+		method := kvString(get, "method")
+		path := kvString(get, "path")
+
+		parentSpan, ok := h.store.Get(uniqueID)
+		if !ok {
+			// Parent span evicted or unknown request — skip.
+			return
+		}
+
+		// Start a client-kind child span representing the backend call.
+		// Using ContextWithSpan links it as a child of the frontend span.
+		ctx := trace.ContextWithSpan(context.Background(), parentSpan)
+		_, backendSpan := h.tracer.Start(ctx,
+			method+" "+path,
+			trace.WithSpanKind(trace.SpanKindClient),
+			trace.WithAttributes(
+				semconv.HTTPMethodKey.String(method),
+				semconv.HTTPTargetKey.String(path),
+				attribute.String("haproxy.backend.name", beName),
+				attribute.String("haproxy.server.name", srvName),
+			),
+		)
+		h.store.Set(uniqueID+":backend", backendSpan)
+		return
+	}
+
 	if msg, err := req.Messages.GetByName("on-http-response"); err == nil {
 		get := msg.KV.Get
 		uniqueID := kvString(get, "unique-id")
@@ -94,6 +126,18 @@ func (h *Handler) Handle(req *request.Request) {
 			return
 		}
 		defer h.store.Delete(uniqueID)
+
+		// End backend child span first so it is nested inside the frontend span.
+		if backendSpan, ok := h.store.Get(uniqueID + ":backend"); ok {
+			backendSpan.SetAttributes(semconv.HTTPStatusCodeKey.Int(statusCode))
+			if statusCode >= 500 {
+				backendSpan.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", statusCode))
+			} else {
+				backendSpan.SetStatus(codes.Ok, "")
+			}
+			backendSpan.End()
+			h.store.Delete(uniqueID + ":backend")
+		}
 
 		span.SetAttributes(append(
 			[]attribute.KeyValue{semconv.HTTPStatusCodeKey.Int(statusCode)},
