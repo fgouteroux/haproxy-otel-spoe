@@ -1,0 +1,120 @@
+version: 2
+
+project_name: haproxy-otel-spoe
+
+# ---------------------------------------------------------------------------
+# Build
+# ---------------------------------------------------------------------------
+builds:
+  - id: haproxy-otel-spoe
+    main: .
+    binary: haproxy-otel-spoe
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/fgouteroux/haproxy-otel-spoe/internal.Version={{.Version}}
+      - -X github.com/fgouteroux/haproxy-otel-spoe/internal.Commit={{.ShortCommit}}
+      - -X github.com/fgouteroux/haproxy-otel-spoe/internal.BuildTime={{.Date}}
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+# ---------------------------------------------------------------------------
+# Archives
+# ---------------------------------------------------------------------------
+archives:
+  - id: haproxy-otel-spoe
+    builds: [haproxy-otel-spoe]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+    files:
+      - LICENSE*
+      - README*
+      - haproxy/haproxy.cfg
+      - haproxy/spoe-otel.cfg
+
+# ---------------------------------------------------------------------------
+# Checksums
+# ---------------------------------------------------------------------------
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+# ---------------------------------------------------------------------------
+# Signing with cosign (keyless / OIDC)
+# ---------------------------------------------------------------------------
+signs:
+  - cmd: cosign
+    args:
+      - sign-blob
+      - --output-certificate=${certificate}
+      - --output-signature=${signature}
+      - ${artifact}
+      - --yes
+    artifacts: checksum
+    output: true
+
+# ---------------------------------------------------------------------------
+# Changelog
+# ---------------------------------------------------------------------------
+changelog:
+  use: github
+  sort: asc
+  abbrev: 7
+  groups:
+    - title: "Features"
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: "Bug Fixes"
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: "Performance"
+      regexp: '^.*?perf(\(.+\))??!?:.+$'
+      order: 2
+    - title: "Refactoring"
+      regexp: '^.*?refactor(\(.+\))??!?:.+$'
+      order: 3
+    - title: "Other Changes"
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^ci:"
+      - "^test:"
+      - "merge conflict"
+      - "Merge pull request"
+      - "Merge branch"
+
+# ---------------------------------------------------------------------------
+# GitHub Release
+# ---------------------------------------------------------------------------
+release:
+  github:
+    owner: fgouteroux
+    name: haproxy-otel-spoe
+  draft: false
+  prerelease: auto
+  name_template: "{{ .ProjectName }} {{ .Tag }}"
+  footer: |
+    ## Verify with cosign
+
+    ```
+    cosign verify-blob \
+      --certificate-identity "https://github.com/fgouteroux/haproxy-otel-spoe/.github/workflows/release.yml@refs/tags/{{ .Tag }}" \
+      --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+      --bundle checksums.txt.sigstore.json \
+      checksums.txt
+    ```
+
+# ---------------------------------------------------------------------------
+# Snapshot (local dev builds, not published)
+# ---------------------------------------------------------------------------
+snapshot:
+  version_template: "{{ .Tag }}-next"

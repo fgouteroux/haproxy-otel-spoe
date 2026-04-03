@@ -1,0 +1,94 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    # --- Correctness ---
+    - errcheck        # unchecked errors
+    - govet           # go vet passes
+    - ineffassign     # assignments to variables never used afterward
+    - staticcheck     # comprehensive static analysis (SA*, S*, QF*)
+    - unused          # unexported identifiers that are never used
+
+    # --- Style & simplification ---
+    - goimports       # import grouping and ordering (superset of gofmt)
+    - misspell        # common English spelling mistakes in comments/strings
+    - godot           # comments should end with a period
+    - revive          # drop-in replacement for golint with more rules
+    - gocritic        # opinionated but useful style checks
+
+    # --- Complexity ---
+    - cyclop          # cyclomatic complexity per function
+
+    # --- Bug-prone patterns ---
+    - noctx           # HTTP requests without context
+    - unparam         # function parameters that are always called with the same value
+    - wastedassign    # assignments whose result is immediately overwritten
+    - forbidigo       # ban specific patterns (configured below)
+    - gochecknoinits  # discourage init() functions
+
+    # --- Concurrency & resources ---
+    - rowserrcheck    # rows.Err() must be checked after sql.Rows iteration
+    - sqlclosecheck   # sql.Rows / sql.Stmt must be closed
+    - tparallel       # detects missing t.Parallel() calls in table-driven tests
+
+linters-settings:
+  cyclop:
+    max-complexity: 15
+    skip-tests: true
+
+  revive:
+    rules:
+      - name: exported
+        arguments:
+          - "checkPrivateReceivers"
+          - "sayRepetitiveInsteadOfStutters"
+      - name: unused-parameter
+      - name: unreachable-code
+      - name: context-as-argument
+      - name: error-return
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - hugeParam       # not applicable for a small daemon
+      - rangeValCopy    # false positives with small structs
+
+  godot:
+    scope: declarations
+    capital: false
+
+  misspell:
+    locale: US
+
+  forbidigo:
+    forbid:
+      - pattern: "^fmt\\.Print(f|ln)?$"
+        message: "use log.Printf/log.Println for daemon output"
+
+  goimports:
+    local-prefixes: github.com/fgouteroux/haproxy-otel-spoe
+
+issues:
+  exclude-rules:
+    # Allow long lines in generated files and test helpers
+    - path: "_test\\.go"
+      linters:
+        - gochecknoinits
+        - forbidigo
+
+    # The otel.go nolint directives are intentional (grpc.Dial deprecation,
+    # InsecureSkipVerify for skip-verify mode, best-effort conn.Close)
+    - path: "internal/otel\\.go"
+      linters:
+        - staticcheck  # grpc.Dial deprecation suppressed with inline nolint
+
+  max-issues-per-linter: 0
+  max-same-issues: 0

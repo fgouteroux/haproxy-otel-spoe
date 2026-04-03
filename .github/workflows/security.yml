@@ -1,0 +1,84 @@
+name: Security
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Run every Monday at 08:00 UTC to catch newly published CVEs
+    - cron: "0 8 * * 1"
+
+permissions:
+  contents: read
+  security-events: write  # required to upload SARIF results to GitHub Security tab
+
+jobs:
+  gosec:
+    name: gosec
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: "1.25"
+          cache: "mod"
+
+      - name: Run gosec
+        uses: securecodewarrior/gosec-action@5d40a5c21ccf1eecc5b00bfb02f79a0b8e74cbee # v1.0.0
+        with:
+          args: "-fmt sarif -out gosec.sarif ./..."
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3.28.18
+        if: always()
+        with:
+          sarif_file: gosec.sarif
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: "1.25"
+          cache: "mod"
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
+  trivy:
+    name: trivy (container)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Build container image
+        run: docker build -f Containerfile -t haproxy-otel-spoe:scan .
+
+      - name: Run Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8 # v0.30.0
+        with:
+          image-ref: haproxy-otel-spoe:scan
+          format: sarif
+          output: trivy.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3.28.18
+        if: always()
+        with:
+          sarif_file: trivy.sarif
