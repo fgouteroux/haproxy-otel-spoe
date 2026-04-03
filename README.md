@@ -43,7 +43,7 @@ For each HTTP transaction, HAProxy fires three SPOE messages, producing two nest
 
 1. **`on-http-request`** — sent when the request arrives at the frontend. The agent opens a new server-kind span (or continues an existing trace from an inbound `traceparent` header), stores it in memory keyed by HAProxy's unique request ID, and returns a `traceparent` value via a transaction variable.
 
-2. **`on-backend-http-request`** — sent when HAProxy selects a backend server. The agent opens a child client-kind span recording `haproxy.backend.name` and `haproxy.server.name`, allowing backend latency to be measured independently.
+2. **`on-backend-http-request`** — sent when HAProxy selects a backend server. The agent opens a child client-kind span to measure backend latency independently. `haproxy.backend.name` and `haproxy.server.name` are recorded when the span is closed (HAProxy only makes these available at response time).
 
 3. **`on-http-response`** — sent after the upstream responds. The agent closes the backend child span, then closes the frontend span, recording the HTTP status code and any custom attributes on both. Both spans are marked as error if status >= 500.
 
@@ -140,11 +140,11 @@ spoe-message on-http-request
     event on-frontend-http-request
 
 spoe-message on-backend-http-request
-    args unique-id=unique-id be_name=be_name srv_name=srv_name method=method path=path
+    args unique-id=unique-id method=method path=path
     event on-backend-http-request
 
 spoe-message on-http-response
-    args unique-id=unique-id status=status custom_attrs=var(txn.otel_attrs)
+    args unique-id=unique-id status=status be_name=be_name srv_name=srv_name custom_attrs=var(txn.otel_attrs)
     event on-http-response
 ```
 

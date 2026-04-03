@@ -86,8 +86,6 @@ func (h *Handler) Handle(req *request.Request) {
 	if msg, err := req.Messages.GetByName("on-backend-http-request"); err == nil {
 		get := msg.KV.Get
 		uniqueID := kvString(get, "unique-id")
-		beName := kvString(get, "be_name")
-		srvName := kvString(get, "srv_name")
 		method := kvString(get, "method")
 		path := kvString(get, "path")
 
@@ -98,7 +96,8 @@ func (h *Handler) Handle(req *request.Request) {
 		}
 
 		// Start a client-kind child span representing the backend call.
-		// Using ContextWithSpan links it as a child of the frontend span.
+		// be_name and srv_name are not available at this HAProxy event stage;
+		// they are added as attributes when the span is closed in on-http-response.
 		ctx := trace.ContextWithSpan(context.Background(), parentSpan)
 		_, backendSpan := h.tracer.Start(ctx,
 			method+" "+path,
@@ -106,8 +105,6 @@ func (h *Handler) Handle(req *request.Request) {
 			trace.WithAttributes(
 				semconv.HTTPMethodKey.String(method),
 				semconv.HTTPTargetKey.String(path),
-				attribute.String("haproxy.backend.name", beName),
-				attribute.String("haproxy.server.name", srvName),
 			),
 		)
 		h.store.Set(uniqueID+":backend", backendSpan)
@@ -118,6 +115,8 @@ func (h *Handler) Handle(req *request.Request) {
 		get := msg.KV.Get
 		uniqueID := kvString(get, "unique-id")
 		statusCode := kvInt(get, "status")
+		beName := kvString(get, "be_name")
+		srvName := kvString(get, "srv_name")
 		customAttrs := kvString(get, "custom_attrs")
 
 		span, ok := h.store.Get(uniqueID)
@@ -128,8 +127,13 @@ func (h *Handler) Handle(req *request.Request) {
 		defer h.store.Delete(uniqueID)
 
 		// End backend child span first so it is nested inside the frontend span.
+		// be_name and srv_name are only available at response time in HAProxy.
 		if backendSpan, ok := h.store.Get(uniqueID + ":backend"); ok {
-			backendSpan.SetAttributes(semconv.HTTPStatusCodeKey.Int(statusCode))
+			backendSpan.SetAttributes(
+				semconv.HTTPStatusCodeKey.Int(statusCode),
+				attribute.String("haproxy.backend.name", beName),
+				attribute.String("haproxy.server.name", srvName),
+			)
 			if statusCode >= 500 {
 				backendSpan.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", statusCode))
 			} else {
