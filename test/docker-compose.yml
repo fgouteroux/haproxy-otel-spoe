@@ -1,0 +1,48 @@
+services:
+
+  # -------------------------------------------------------------------------
+  # SPOE agent — built from the root Containerfile
+  # -------------------------------------------------------------------------
+  agent:
+    build:
+      context: ..
+      dockerfile: Containerfile
+    environment:
+      OTLP_ENDPOINT: tempo:4317
+      SERVICE_NAME: haproxy
+      SPOE_ADDR: 0.0.0.0:12345
+      OTLP_TLS: disabled
+    depends_on:
+      - tempo
+    restart: on-failure
+
+  # -------------------------------------------------------------------------
+  # HAProxy 2.8 — built from the test Containerfile with local configs
+  # -------------------------------------------------------------------------
+  haproxy:
+    build:
+      context: .
+      dockerfile: Containerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      - agent
+      - backend
+    restart: on-failure
+
+  # -------------------------------------------------------------------------
+  # Simple HTTP backend — echoes request details (method, headers, IP, …)
+  # -------------------------------------------------------------------------
+  backend:
+    image: traefik/whoami
+
+  # -------------------------------------------------------------------------
+  # Tempo — OTLP gRPC receiver on :4317, HTTP query API on :3200
+  # -------------------------------------------------------------------------
+  tempo:
+    image: grafana/tempo:2.10.0
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+    ports:
+      - "3200:3200"   # Tempo HTTP query API

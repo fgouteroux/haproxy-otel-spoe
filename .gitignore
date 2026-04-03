@@ -1,0 +1,30 @@
+# Binary output
+haproxy-otel-spoe
+dist/
+
+# Test artifacts
+coverage.out
+coverage.html
+
+# Security scan output
+gosec.sarif
+trivy.sarif
+*.sarif
+
+# Go build cache
+*.test
+*.prof
+
+# Editor directories
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# GoReleaser local artifacts
+/tmp/
