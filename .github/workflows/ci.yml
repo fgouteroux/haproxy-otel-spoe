@@ -38,7 +38,7 @@ jobs:
         run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Upload coverage
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: coverage-${{ matrix.go-version }}
           path: coverage.out
@@ -101,7 +101,7 @@ jobs:
             -o dist/haproxy-otel-spoe-${{ matrix.goos }}-${{ matrix.goarch }} .
 
       - name: Upload binary
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: haproxy-otel-spoe-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/
